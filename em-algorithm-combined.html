@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EM Algorithm — Full Visualizer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:ital,wght@0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+:root{
+  --bg:#060a12; --surf:#0b1120; --surf2:#0f1929;
+  --border:rgba(90,120,255,0.13);
+  --acc:#5a78ff; --acc2:#ff6b9d; --acc3:#4de8d4; --acc4:#f9a825; --acc5:#a78bfa;
+  --ll:#f9a825; --elbo:#a78bfa; --kl:#ff6b9d; --path:#4de8d4;
+  --text:#dde6f8; --muted:#4a6080; --dim:#2d3f5e;
+  --glow:rgba(90,120,255,0.35);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);}
+body{display:flex;flex-direction:column;font-family:'DM Sans',sans-serif;color:var(--text);}
+
+/* ─── HEADER ─── */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:9px 20px;border-bottom:1px solid var(--border);
+  background:rgba(11,17,32,0.95);backdrop-filter:blur(20px);
+  flex-shrink:0;z-index:50;
+}
+.logo{display:flex;align-items:baseline;gap:10px;}
+.logo-title{font-family:'Playfair Display',serif;font-size:1.1rem;font-weight:700;background:linear-gradient(135deg,#5a78ff,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.logo-sub{font-family:'DM Mono',monospace;font-size:0.56rem;color:var(--dim);letter-spacing:0.12em;text-transform:uppercase;}
+.hbadges{display:flex;gap:4px;flex-wrap:wrap;}
+.hb{font-family:'DM Mono',monospace;font-size:0.61rem;padding:2px 8px;border-radius:20px;background:var(--surf2);border:1px solid var(--border);color:var(--muted);}
+.hb span{font-weight:500;}
+.hb.ll-b span{color:var(--ll);} .hb.elbo-b span{color:var(--elbo);} .hb.kl-b span{color:var(--kl);} .hb.acc-b span{color:var(--acc);}
+
+/* ─── MAIN LAYOUT ─── */
+.workspace{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0;}
+.top-row{flex:1;display:grid;grid-template-columns:1fr 1fr 240px;overflow:hidden;min-height:0;}
+
+/* ─── CLUSTER PANE ─── */
+.cluster-pane{position:relative;overflow:hidden;border-right:1px solid var(--border);}
+.cluster-pane canvas{display:block;width:100%;height:100%;cursor:grab;}
+.cluster-pane canvas:active{cursor:grabbing;}
+
+/* ─── LANDSCAPE PANE ─── */
+.landscape-pane{position:relative;overflow:hidden;border-right:1px solid var(--border);}
+.landscape-pane canvas{display:block;width:100%;height:100%;cursor:grab;}
+.landscape-pane canvas:active{cursor:grabbing;}
+
+/* Pane labels */
+.pane-label{
+  position:absolute;top:10px;left:12px;
+  font-family:'DM Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;
+  color:var(--dim);background:rgba(6,10,18,0.75);backdrop-filter:blur(8px);
+  border:1px solid var(--border);border-radius:5px;padding:3px 9px;pointer-events:none;
+}
+
+.toolbar{
+  position:absolute;top:10px;right:10px;display:flex;gap:4px;align-items:center;
+  background:rgba(11,17,32,0.82);backdrop-filter:blur(12px);
+  border:1px solid var(--border);border-radius:8px;padding:6px 9px;
+}
+.hint{
+  position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
+  font-family:'DM Mono',monospace;font-size:0.56rem;color:var(--dim);
+  background:rgba(11,17,32,0.7);backdrop-filter:blur(8px);
+  border:1px solid var(--border);border-radius:5px;padding:3px 11px;white-space:nowrap;pointer-events:none;
+}
+.conv-banner{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  background:rgba(77,232,212,0.1);border:1px solid rgba(77,232,212,0.4);
+  border-radius:10px;padding:9px 22px;font-family:'DM Mono',monospace;
+  font-size:0.75rem;color:var(--acc3);display:none;box-shadow:0 0 30px rgba(77,232,212,0.2);
+  animation:popIn 0.4s cubic-bezier(0.34,1.56,0.64,1);pointer-events:none;text-align:center;
+}
+@keyframes popIn{from{opacity:0;transform:translate(-50%,-50%) scale(0.85);}to{opacity:1;transform:translate(-50%,-50%) scale(1);}}
+
+/* landscape legend */
+.ls-legend{
+  position:absolute;bottom:36px;left:10px;
+  background:rgba(11,17,32,0.8);backdrop-filter:blur(10px);
+  border:1px solid var(--border);border-radius:8px;padding:8px 11px;
+  display:flex;flex-direction:column;gap:4px;pointer-events:none;
+}
+.leg-row{display:flex;align-items:center;gap:7px;font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--muted);}
+.leg-sw{width:18px;height:2px;border-radius:1px;}
+
+/* ─── SIDEBAR ─── */
+.sidebar{background:var(--surf);display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;}
+.sidebar::-webkit-scrollbar{width:3px;}
+.sidebar::-webkit-scrollbar-thumb{background:var(--border);}
+.panel{padding:11px 12px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.ptitle{font-family:'DM Mono',monospace;font-size:0.52rem;letter-spacing:0.13em;text-transform:uppercase;color:var(--dim);margin-bottom:8px;display:flex;align-items:center;gap:5px;}
+.ptitle::after{content:'';flex:1;height:1px;background:var(--border);}
+.srow{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;}
+.slbl{font-size:0.67rem;color:var(--muted);}
+.sval{font-family:'DM Mono',monospace;font-size:0.67rem;color:var(--acc);min-width:26px;text-align:right;}
+input[type=range]{-webkit-appearance:none;width:100%;height:3px;border-radius:2px;background:var(--surf2);outline:none;margin:3px 0 7px;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:var(--acc);cursor:pointer;box-shadow:0 0 6px var(--glow);}
+.nrow{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.nlbl{font-size:0.67rem;color:var(--muted);}
+input[type=number]{background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:'DM Mono',monospace;font-size:0.7rem;padding:3px 6px;width:56px;text-align:center;outline:none;}
+input[type=number]:focus{border-color:var(--acc);}
+.mtog{display:flex;background:var(--surf2);border-radius:5px;border:1px solid var(--border);overflow:hidden;margin-top:2px;}
+.mbtn{flex:1;padding:3px 2px;font-family:'DM Mono',monospace;font-size:0.52rem;cursor:pointer;border:none;background:transparent;color:var(--dim);transition:all 0.15s;text-align:center;}
+.mbtn.active{background:var(--acc);color:#fff;}
+.btn{display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;font-size:0.66rem;font-family:'DM Mono',monospace;cursor:pointer;border:1px solid transparent;transition:all 0.15s;font-weight:500;}
+.bp{background:var(--acc);color:#fff;border-color:var(--acc);box-shadow:0 0 10px rgba(90,120,255,0.35);}
+.bp:hover{background:#7090ff;}
+.bg{background:transparent;color:var(--muted);border-color:var(--border);}
+.bg:hover{background:var(--surf2);color:var(--text);}
+.bd{background:transparent;color:var(--kl);border-color:rgba(255,107,157,0.3);}
+.bd:hover{background:rgba(255,107,157,0.1);}
+.bgo{background:rgba(77,232,212,0.1);color:var(--acc3);border-color:rgba(77,232,212,0.3);}
+.bgo:hover{background:rgba(77,232,212,0.2);}
+.bel{background:rgba(249,168,37,0.1);color:var(--ll);border-color:rgba(249,168,37,0.3);}
+.bel:hover{background:rgba(249,168,37,0.2);}
+.btn:disabled{opacity:0.3;cursor:default;pointer-events:none;}
+.cl-list{display:flex;flex-direction:column;gap:4px;}
+.cl-row{display:flex;align-items:center;gap:5px;padding:4px 7px;border-radius:5px;background:var(--surf2);border:1px solid var(--border);font-size:0.62rem;font-family:'DM Mono',monospace;}
+.cl-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.sg{display:grid;grid-template-columns:1fr 1fr;gap:4px;}
+.sc{background:var(--surf2);border-radius:5px;padding:5px 7px;border:1px solid var(--border);}
+.sl{font-family:'DM Mono',monospace;font-size:0.48rem;color:var(--dim);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:1px;}
+.sv{font-family:'DM Mono',monospace;font-size:0.78rem;color:var(--text);}
+.mc{background:var(--surf2);border-radius:5px;border:1px solid var(--border);overflow:hidden;position:relative;margin-top:4px;}
+.mc canvas{display:block;width:100%;height:100%;}
+.mc-lbl{position:absolute;top:4px;left:6px;font-family:'DM Mono',monospace;font-size:0.48rem;color:var(--dim);text-transform:uppercase;letter-spacing:0.07em;pointer-events:none;}
+.elb-wrap{background:var(--surf2);border-radius:6px;border:1px solid var(--border);overflow:hidden;position:relative;height:110px;margin-top:6px;}
+.elb-st{font-family:'DM Mono',monospace;font-size:0.6rem;color:var(--dim);text-align:center;padding:6px 0;}
+.elb-rec{margin-top:5px;padding:6px 9px;border-radius:5px;background:rgba(249,168,37,0.07);border:1px solid rgba(249,168,37,0.2);font-family:'DM Mono',monospace;font-size:0.61rem;color:var(--ll);display:none;line-height:1.5;}
+.elb-rec strong{font-size:0.7rem;}
+.mettog{display:flex;background:var(--surf2);border-radius:4px;border:1px solid var(--border);overflow:hidden;margin-bottom:6px;}
+.metbtn{flex:1;padding:3px;font-family:'DM Mono',monospace;font-size:0.54rem;cursor:pointer;border:none;background:transparent;color:var(--dim);transition:all 0.15s;text-align:center;}
+.metbtn.active{background:var(--ll);color:#111;}
+.expl{padding:11px 12px;display:flex;flex-direction:column;gap:6px;flex-shrink:0;}
+.pc{border-radius:7px;padding:8px;border:1px solid;transition:all 0.3s ease;position:relative;overflow:hidden;}
+.pc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+.epc{background:rgba(90,120,255,0.07);border-color:rgba(90,120,255,0.2);}
+.epc::before{background:linear-gradient(90deg,#5a78ff,transparent);}
+.epc.active{background:rgba(90,120,255,0.14);border-color:rgba(90,120,255,0.5);box-shadow:0 0 16px rgba(90,120,255,0.12);}
+.mpc{background:rgba(255,107,157,0.07);border-color:rgba(255,107,157,0.2);}
+.mpc::before{background:linear-gradient(90deg,var(--kl),transparent);}
+.mpc.active{background:rgba(255,107,157,0.14);border-color:rgba(255,107,157,0.45);box-shadow:0 0 16px rgba(255,107,157,0.12);}
+.pct{font-family:'DM Mono',monospace;font-size:0.57rem;letter-spacing:0.09em;text-transform:uppercase;margin-bottom:3px;}
+.epc .pct{color:#5a78ff;} .mpc .pct{color:var(--kl);}
+.ptx{font-size:0.63rem;color:var(--muted);line-height:1.55;}
+.pdot{width:5px;height:5px;border-radius:50%;display:inline-block;}
+.sprow{display:flex;align-items:center;gap:6px;margin-top:4px;}
+.splbl{font-size:0.59rem;color:var(--dim);font-family:'DM Mono',monospace;}
+.spinner{display:inline-block;width:8px;height:8px;border:1.5px solid rgba(249,168,37,0.3);border-top-color:var(--ll);border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle;margin-right:3px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ─── ELBO DRAWER ─── */
+.elbo-drawer{
+  flex-shrink:0;background:var(--surf);border-top:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;
+  transition:height 0.3s cubic-bezier(0.4,0,0.2,1);
+  height:0;position:relative;z-index:10;
+}
+.elbo-drawer.open{height:220px;}
+.drw-tab{
+  position:absolute;top:-24px;left:50%;transform:translateX(-50%);
+  background:var(--surf);border:1px solid var(--border);border-bottom:none;
+  border-radius:7px 7px 0 0;padding:3px 16px 5px;
+  display:flex;align-items:center;gap:7px;cursor:pointer;
+  font-family:'DM Mono',monospace;font-size:0.59rem;color:var(--muted);
+  white-space:nowrap;z-index:11;box-shadow:0 -3px 10px rgba(0,0,0,0.3);
+  transition:color 0.15s;
+}
+.drw-tab:hover{color:var(--text);}
+.drw-arr{transition:transform 0.3s;display:inline-block;}
+.elbo-drawer.open .drw-arr{transform:rotate(180deg);}
+.drw-inner{
+  display:grid;grid-template-columns:1fr 0.65fr 260px;
+  flex:1;overflow:hidden;padding:12px 14px;gap:12px;
+}
+.drw-chart{background:var(--surf2);border-radius:7px;border:1px solid var(--border);position:relative;overflow:hidden;}
+.drw-chart canvas{display:block;width:100%;height:100%;}
+.drw-kl{background:var(--surf2);border-radius:7px;border:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.kl-head{padding:6px 9px 0;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.kl-ttl{font-family:'DM Mono',monospace;font-size:0.55rem;color:var(--kl);text-transform:uppercase;letter-spacing:0.1em;}
+.kl-badge{font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--kl);background:rgba(255,107,157,0.1);border:1px solid rgba(255,107,157,0.25);border-radius:3px;padding:1px 6px;}
+#klDrwCanvas{flex:1;display:block;width:100%;}
+.drw-info{display:flex;flex-direction:column;gap:7px;overflow:hidden;}
+.drw-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;}
+.ds{background:var(--surf2);border-radius:5px;padding:6px 8px;border:1px solid;}
+.ds.dsll{border-color:rgba(249,168,37,0.3);}
+.ds.dsel{border-color:rgba(167,139,250,0.3);}
+.ds.dskl{border-color:rgba(255,107,157,0.3);}
+.dsl{font-family:'DM Mono',monospace;font-size:0.48rem;text-transform:uppercase;letter-spacing:0.08em;opacity:0.7;}
+.dsll .dsl{color:var(--ll);} .dsel .dsl{color:var(--elbo);} .dskl .dsl{color:var(--kl);}
+.dsv{font-family:'DM Mono',monospace;font-size:0.82rem;color:var(--text);}
+.tightrow{display:flex;align-items:center;gap:6px;}
+.tightlbl{font-family:'DM Mono',monospace;font-size:0.57rem;color:var(--dim);white-space:nowrap;}
+.tightbar{flex:1;height:6px;background:var(--surf);border-radius:3px;overflow:hidden;border:1px solid var(--border);}
+.tightfill{height:100%;border-radius:3px;transition:width 0.4s ease;background:linear-gradient(90deg,var(--kl),var(--ll),var(--acc3));}
+.tightpct{font-family:'DM Mono',monospace;font-size:0.59rem;color:var(--acc3);min-width:32px;text-align:right;}
+.fml{background:rgba(167,139,250,0.05);border:1px solid rgba(167,139,250,0.15);border-radius:7px;padding:8px 10px;font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--dim);line-height:1.85;flex:1;}
+.fml .fl{color:var(--ll);} .fml .fe{color:var(--elbo);} .fml .fk{color:var(--kl);} .fml .fa{color:var(--acc);}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span class="logo-title">EM Algorithm</span>
+    <span class="logo-sub">Cluster Formation + LL/ELBO Landscape</span>
+  </div>
+  <div class="hbadges">
+    <div class="hb acc-b">Iter <span id="hIter">0</span></div>
+    <div class="hb acc-b">Phase <span id="hPhase">—</span></div>
+    <div class="hb ll-b">LL <span id="hLL">—</span></div>
+    <div class="hb elbo-b">ELBO <span id="hELBO">—</span></div>
+    <div class="hb kl-b">KL <span id="hKL">—</span></div>
+  </div>
+</header>
+
+<div class="workspace">
+  <div class="top-row">
+
+    <!-- ── LEFT: Cluster 3D Scene ── -->
+    <div class="cluster-pane" id="clWrap">
+      <canvas id="clCanvas"></canvas>
+      <div class="pane-label">◉ Cluster Formation (3D)</div>
+      <div class="toolbar">
+        <button class="btn bg" id="btnSample">＋ Sample</button>
+        <div style="width:1px;height:16px;background:var(--border);margin:0 1px"></div>
+        <button class="btn bg" id="btnInit" disabled>⬡ Init</button>
+        <button class="btn bp" id="btnStep" disabled>▶ E-Step</button>
+        <button class="btn bgo" id="btnAuto" disabled>⟳ Auto</button>
+        <button class="btn bd" id="btnReset">↺ Reset</button>
+      </div>
+      <div class="hint">🖱 Drag · Scroll · Right-drag pan</div>
+      <div class="conv-banner" id="convBanner">✓ Converged<br><span style="font-size:0.6rem;color:rgba(77,232,212,0.7)">LL stable</span></div>
+    </div>
+
+    <!-- ── RIGHT: LL/ELBO Landscape ── -->
+    <div class="landscape-pane" id="lsWrap">
+      <canvas id="lsCanvas"></canvas>
+      <div class="pane-label" style="color:var(--ll)">◈ LL · ELBO Parameter Landscape</div>
+      <div class="ls-legend">
+        <div class="leg-row"><div class="leg-sw" style="background:var(--ll);box-shadow:0 0 4px rgba(249,168,37,0.6)"></div>Log-Likelihood surface</div>
+        <div class="leg-row"><div class="leg-sw" style="background:var(--elbo);box-shadow:0 0 4px rgba(167,139,250,0.6)"></div>ELBO lower bound</div>
+        <div class="leg-row"><div class="leg-sw" style="background:var(--kl)"></div>KL gap (pillar)</div>
+        <div class="leg-row"><div class="leg-sw" style="background:var(--path);box-shadow:0 0 4px rgba(77,232,212,0.5)"></div>EM trajectory</div>
+      </div>
+      <div class="hint">🖱 Drag · Scroll · Right-drag pan</div>
+    </div>
+
+    <!-- ── SIDEBAR ── -->
+    <div class="sidebar">
+      <div class="panel">
+        <div class="ptitle">Configuration</div>
+        <div class="nrow"><span class="nlbl">Sample points</span><input type="number" id="numPts" min="10" max="400" value="75"></div>
+        <div class="srow"><span class="slbl">Clusters (K)</span><span class="sval" id="kVal">3</span></div>
+        <input type="range" id="kSlider" min="2" max="8" value="3">
+        <div class="srow"><span class="slbl">Convergence ε</span><span class="sval" id="epsVal">1e-4</span></div>
+        <input type="range" id="epsSlider" min="1" max="5" value="3">
+        <div class="srow" style="margin-bottom:3px"><span class="slbl">Ellipsoid σ</span><span class="sval" id="sigmaVal">2σ</span></div>
+        <input type="range" id="sigmaSlider" min="1" max="4" value="2">
+        <div class="mtog">
+          <button class="mbtn active" id="modeEllip">Ellipsoids</button>
+          <button class="mbtn" id="modeWire">Wire</button>
+          <button class="mbtn" id="modePts">Pts</button>
+        </div>
+        <div class="sprow">
+          <span class="splbl">Speed:</span>
+          <input type="range" id="speedSlider" min="1" max="5" value="3" style="flex:1;margin:0">
+          <span class="splbl" id="speedVal">3×</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="ptitle">Clusters</div>
+        <div class="cl-list" id="clusterList">
+          <div style="font-family:'DM Mono',monospace;font-size:0.59rem;color:var(--dim);text-align:center;padding:5px 0">Initialize to see clusters</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="ptitle">Statistics</div>
+        <div class="sg">
+          <div class="sc"><div class="sl">Points</div><div class="sv" id="sPoints">0</div></div>
+          <div class="sc"><div class="sl">Iters</div><div class="sv" id="sIter">0</div></div>
+          <div class="sc"><div class="sl">Log-Lik</div><div class="sv" id="sLL" style="color:var(--ll)">—</div></div>
+          <div class="sc"><div class="sl">Δ LL</div><div class="sv" id="sDelta">—</div></div>
+        </div>
+        <div class="mc" style="height:58px;">
+          <canvas id="llMini"></canvas>
+          <div class="mc-lbl">LL / Iterations</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="ptitle">Elbow Analysis</div>
+        <div class="mettog">
+          <button class="metbtn active" id="metBIC">BIC</button>
+          <button class="metbtn" id="metAIC">AIC</button>
+          <button class="metbtn" id="metNLL">−LL</button>
+        </div>
+        <button class="btn bel" id="btnElbow" style="width:100%;justify-content:center;" disabled>◈ Run Elbow (K=2…8)</button>
+        <div class="elb-wrap" id="elbowWrap" style="display:none;"><canvas id="elbowCanvas"></canvas></div>
+        <div class="elb-st" id="elbowStatus" style="display:none;"></div>
+        <div class="elb-rec" id="elbowRec"></div>
+      </div>
+
+      <div class="expl">
+        <div class="ptitle" style="padding:0;margin-bottom:4px">Algorithm</div>
+        <div class="pc epc" id="eCard">
+          <div class="pct"><span class="pdot" style="background:#5a78ff"></span> E-Step</div>
+          <div class="ptx">Compute responsibilities. ELBO surface lifts to touch LL — KL→0.</div>
+        </div>
+        <div class="pc mpc" id="mCard">
+          <div class="pct"><span class="pdot" style="background:var(--kl)"></span> M-Step</div>
+          <div class="ptx">Update μ, Σ, π. Trajectory moves on landscape. LL climbs.</div>
+        </div>
+        <div style="font-size:0.62rem;color:var(--dim);line-height:1.65;font-family:'DM Mono',monospace;">
+          Both views share the same EM state — every step updates clusters AND the landscape simultaneously.
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /top-row -->
+
+  <!-- ── ELBO DRAWER ── -->
+  <div class="elbo-drawer" id="elboDrw">
+    <div class="drw-tab" onclick="toggleDrawer()">
+      <span style="color:var(--elbo);font-size:0.62rem">◈</span>
+      LL · ELBO · KL Timeline
+      <span class="drw-arr">▲</span>
+    </div>
+    <div class="drw-inner">
+      <div class="drw-chart"><canvas id="elboBigC"></canvas></div>
+      <div class="drw-kl">
+        <div class="kl-head"><span class="kl-ttl">KL Divergence</span><span class="kl-badge" id="klBadge">—</span></div>
+        <canvas id="klDrwCanvas"></canvas>
+      </div>
+      <div class="drw-info">
+        <div class="drw-stats">
+          <div class="ds dsll"><div class="dsl">Log-Lik</div><div class="dsv" id="dsLL">—</div></div>
+          <div class="ds dsel"><div class="dsl">ELBO</div><div class="dsv" id="dsELBO">—</div></div>
+          <div class="ds dskl"><div class="dsl">KL</div><div class="dsv" id="dsKL">—</div></div>
+        </div>
+        <div>
+          <div style="font-family:'DM Mono',monospace;font-size:0.5rem;color:var(--dim);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:4px;">Bound Tightness</div>
+          <div class="tightrow">
+            <span class="tightlbl">ELBO/LL</span>
+            <div class="tightbar"><div class="tightfill" id="tightFill" style="width:0%"></div></div>
+            <span class="tightpct" id="tightPct">—</span>
+          </div>
+        </div>
+        <div class="fml">
+          <div><span class="fl">ℒ(θ)</span> = <span class="fe">ELBO</span> + <span class="fk">KL(q∥p)</span></div>
+          <div><span class="fe">ELBO</span> = 𝔼<sub>q</sub>[log p(x,z)] − 𝔼<sub>q</sub>[log q(z)]</div>
+          <div><span class="fa">E-step</span>: q=p(z|x,θ) → <span class="fk">KL</span>=0, tight</div>
+          <div><span class="fl">M-step</span>: maximize <span class="fe">ELBO</span> → <span class="fl">LL</span>↑</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /workspace -->
+
+<script>
+// ══════════════════════════════════════════════════════
+// SHARED PALETTE + MATH
+// ══════════════════════════════════════════════════════
+const PAL=[
+  {hex:'#5a78ff',three:0x5a78ff},{hex:'#ff6b9d',three:0xff6b9d},
+  {hex:'#4de8d4',three:0x4de8d4},{hex:'#f9a825',three:0xf9a825},
+  {hex:'#b47bff',three:0xb47bff},{hex:'#ff8a65',three:0xff8a65},
+  {hex:'#7fff6b',three:0x7fff6b},{hex:'#6bf5ff',three:0x6bf5ff},
+];
+
+// 3D EM math
+function det3(m){return m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])-m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])+m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);}
+function inv3(m){const d=det3(m);if(Math.abs(d)<1e-12)return null;return[[(m[1][1]*m[2][2]-m[1][2]*m[2][1])/d,(m[0][2]*m[2][1]-m[0][1]*m[2][2])/d,(m[0][1]*m[1][2]-m[0][2]*m[1][1])/d],[(m[1][2]*m[2][0]-m[1][0]*m[2][2])/d,(m[0][0]*m[2][2]-m[0][2]*m[2][0])/d,(m[0][2]*m[1][0]-m[0][0]*m[1][2])/d],[(m[1][0]*m[2][1]-m[1][1]*m[2][0])/d,(m[0][1]*m[2][0]-m[0][0]*m[2][1])/d,(m[0][0]*m[1][1]-m[0][1]*m[1][0])/d]];}
+function jacobi3(A){let a=A.map(r=>[...r]),V=[[1,0,0],[0,1,0],[0,0,1]];for(let it=0;it<100;it++){let mx=0,p=0,q=1;for(let i=0;i<3;i++)for(let j=i+1;j<3;j++)if(Math.abs(a[i][j])>mx){mx=Math.abs(a[i][j]);p=i;q=j;}if(mx<1e-12)break;const diff=a[q][q]-a[p][p],phi=diff/(2*a[p][q]+1e-300),t=Math.sign(phi)/(Math.abs(phi)+Math.sqrt(phi*phi+1)),c=1/Math.sqrt(1+t*t),s=t*c,apq=a[p][q];a[p][p]-=t*apq;a[q][q]+=t*apq;a[p][q]=a[q][p]=0;for(let r=0;r<3;r++){if(r!==p&&r!==q){const apr=a[p][r],aqr=a[q][r];a[p][r]=a[r][p]=c*apr-s*aqr;a[q][r]=a[r][q]=s*apr+c*aqr;}const vp=V[r][p],vq=V[r][q];V[r][p]=c*vp-s*vq;V[r][q]=s*vp+c*vq;}}return{values:[a[0][0],a[1][1],a[2][2]],vecs:[0,1,2].map(k=>[V[0][k],V[1][k],V[2][k]])};}
+function g3D(pt,mu,si,dt){const dx=[pt[0]-mu[0],pt[1]-mu[1],pt[2]-mu[2]];let q=0;for(let i=0;i<3;i++)for(let j=0;j<3;j++)q+=dx[i]*si[i][j]*dx[j];return Math.exp(-0.5*q)/(Math.pow(2*Math.PI,1.5)*Math.sqrt(Math.abs(dt))+1e-300);}
+function randn(){const u=Math.random(),v=Math.random();return Math.sqrt(-2*Math.log(u+1e-10))*Math.cos(2*Math.PI*v);}
+
+// 1D helpers for landscape
+function g1D(x,mu,sigma){const d=(x-mu)/sigma;return Math.exp(-0.5*d*d)/(sigma*Math.sqrt(2*Math.PI));}
+function LL1D(data,mu1,pi1,mu2,sigma){let ll=0;for(const x of data)ll+=Math.log(pi1*g1D(x,mu1,sigma)+(1-pi1)*g1D(x,mu2,sigma)+1e-300);return ll;}
+function ELBO1D(data,mu1,pi1,mu2,sigma,rs){let e=0;for(let n=0;n<data.length;n++){const x=data[n],r1=rs[n],r2=1-r1;if(r1>1e-10)e+=r1*(Math.log(pi1+1e-300)+Math.log(g1D(x,mu1,sigma)+1e-300));if(r2>1e-10)e+=r2*(Math.log(1-pi1+1e-300)+Math.log(g1D(x,mu2,sigma)+1e-300));if(r1>1e-10)e-=r1*Math.log(r1);if(r2>1e-10)e-=r2*Math.log(r2);}return e;}
+
+// ══════════════════════════════════════════════════════
+// SHARED EM STATE
+// ══════════════════════════════════════════════════════
+const EM={
+  points:[],K:3,gaussians:[],resps:[],
+  iter:0,phase:'none',
+  llHistory:[],events:[], // {phase,ll,elbo,kl}
+  prevLL:null,converged:false,initialized:false,
+  // projected 1D data for landscape (x-coords of all points)
+  data1D:[],mu2_1D:-1,sigma1D:1,rs1D:[],
+};
+const EPS_VALS=[1e-2,1e-3,1e-4,1e-5,1e-6];
+const EPS_LBL=['1e-2','1e-3','1e-4','1e-5','1e-6'];
+
+function emInitGs(pts,K){
+  const sh=[...pts].sort(()=>Math.random()-0.5);
+  return Array.from({length:K},(_,k)=>{const mu=[...sh[k%sh.length]];const sig=[[2500,0,0],[0,2500,0],[0,0,2500]];return{mu,sigma:sig,sigmaInv:inv3(sig),det:det3(sig),pi:1/K};});
+}
+function emE3(pts,gs){return pts.map(pt=>{const w=gs.map(g=>g.pi*g3D(pt,g.mu,g.sigmaInv,g.det));const s=w.reduce((a,b)=>a+b,1e-300);return w.map(v=>v/s);});}
+function emM3(pts,rs,K){return Array.from({length:K},(_,k)=>{const Nk=rs.reduce((s,r)=>s+r[k],0)+1e-10;const mu=[0,1,2].map(d=>rs.reduce((s,r,i)=>s+r[k]*pts[i][d],0)/Nk);let sig=[[0,0,0],[0,0,0],[0,0,0]];pts.forEach((p,i)=>{const r=rs[i][k],dx=[p[0]-mu[0],p[1]-mu[1],p[2]-mu[2]];for(let a=0;a<3;a++)for(let b=0;b<3;b++)sig[a][b]+=r*dx[a]*dx[b];});sig=sig.map((row,a)=>row.map((v,b)=>{const val=v/Nk;return a===b?Math.max(val,200):val;}));const si=inv3(sig)||[[1/200,0,0],[0,1/200,0],[0,0,1/200]];return{mu,sigma:sig,sigmaInv:si,det:det3(sig),pi:Nk/pts.length};});}
+function emLL3(pts,gs){return pts.reduce((ll,pt)=>{const s=gs.reduce((acc,g)=>acc+g.pi*g3D(pt,g.mu,g.sigmaInv,g.det),0);return ll+Math.log(s+1e-300);},0);}
+function emELBO3(pts,gs,rs){let e=0;pts.forEach((pt,n)=>{gs.forEach((g,k)=>{const r=rs[n][k];if(r<1e-300)return;e+=r*(Math.log(g.pi+1e-300)+Math.log(g3D(pt,g.mu,g.sigmaInv,g.det)+1e-300)-Math.log(r));});});return e;}
+function runEM(pts,K,mx=80,eps=1e-3){let gs=emInitGs(pts,K),rs=[],pll=-Infinity;for(let i=0;i<mx;i++){rs=emE3(pts,gs);gs=emM3(pts,rs,K);const ll=emLL3(pts,gs);if(i>2&&Math.abs(ll-pll)<eps)break;pll=ll;}return{gaussians:gs,resps:rs,ll:pll};}
+function bic(ll,K,N){return(10*K-1)*Math.log(N)-2*ll;}
+function aic(ll,K){return 2*(10*K-1)-2*ll;}
+
+// Derive 1D data for landscape: project first-axis x-coords into 2-cluster 1D GMM
+function update1DData(){
+  EM.data1D=EM.points.map(p=>p[0]);
+  if(EM.gaussians.length>=2){
+    EM.mu2_1D=EM.gaussians[1].mu[0];
+    EM.sigma1D=Math.sqrt(EM.gaussians[0].sigma[0][0])*0.6||30;
+  }else{
+    const mu=EM.data1D.reduce((a,b)=>a+b,0)/Math.max(1,EM.data1D.length);
+    EM.mu2_1D=mu-40;
+    EM.sigma1D=30;
+  }
+  EM.rs1D=EM.resps.length?EM.resps.map(r=>r[0]||0.5):EM.data1D.map(()=>0.5);
+}
+
+// ══════════════════════════════════════════════════════
+// CLUSTER SCENE (Three.js #1)
+// ══════════════════════════════════════════════════════
+const clCanvas=document.getElementById('clCanvas');
+const clRenderer=new THREE.WebGLRenderer({canvas:clCanvas,antialias:true,alpha:true});
+clRenderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+clRenderer.setClearColor(0x060a12,1);
+const clScene=new THREE.Scene();
+const clCamera=new THREE.PerspectiveCamera(50,1,0.1,5000);
+clScene.add(new THREE.AmbientLight(0x223355,1.5));
+const cl_dl=new THREE.DirectionalLight(0x8899ff,1.2);cl_dl.position.set(2,4,2);clScene.add(cl_dl);
+const cl_fl=new THREE.DirectionalLight(0xff6090,0.4);cl_fl.position.set(-2,-1,-2);clScene.add(cl_fl);
+
+// grid
+(()=>{const L=[];const R=250,S=50;for(let i=-R;i<=R;i+=S){L.push(i,-1,-R,i,-1,R,);L.push(-R,-1,i,R,-1,i);}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(L,3));clScene.add(new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0x0d1a2e,transparent:true,opacity:0.8})));})();
+function clAxis(dir,col,len=180){const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(...dir).multiplyScalar(len)]);return new THREE.Line(g,new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.35}));}
+clScene.add(clAxis([1,0,0],0xff4466));clScene.add(clAxis([0,1,0],0x44ff66));clScene.add(clAxis([0,0,1],0x4466ff));
+
+let clPtMeshes=[],clEllMeshes=[],clMeanMkrs=[];
+const sGeo=new THREE.SphereGeometry(1,8,6);
+const eGeo=new THREE.SphereGeometry(1,32,16);
+const wGeo=new THREE.SphereGeometry(1,16,10);
+let clDispMode='ellipse';
+
+function clClearScene(){
+  clPtMeshes.forEach(m=>{clScene.remove(m);m.material.dispose();});clPtMeshes=[];
+  clEllMeshes.forEach(e=>{if(e.solid)clScene.remove(e.solid);if(e.wire)clScene.remove(e.wire);});clEllMeshes=[];
+  clMeanMkrs.forEach(m=>{clScene.remove(m);m.material.dispose();});clMeanMkrs=[];
+}
+function clRebuildPts(){
+  clPtMeshes.forEach(m=>{clScene.remove(m);m.material.dispose();});clPtMeshes=[];
+  EM.points.forEach((pt,i)=>{
+    let col=0x8899aa;
+    if(EM.resps[i]&&EM.gaussians.length>0){const mK=EM.resps[i].indexOf(Math.max(...EM.resps[i]));col=PAL[mK%PAL.length].three;}
+    const mat=new THREE.MeshPhongMaterial({color:col,emissive:col,emissiveIntensity:0.5,shininess:80,transparent:true,opacity:0.9});
+    const m=new THREE.Mesh(sGeo,mat);m.position.set(pt[0],pt[1],pt[2]);m.scale.setScalar(4);clScene.add(m);clPtMeshes.push(m);
+  });
+}
+function clRebuildEll(){
+  clEllMeshes.forEach(e=>{if(e.solid)clScene.remove(e.solid);if(e.wire)clScene.remove(e.wire);});clEllMeshes=[];
+  clMeanMkrs.forEach(m=>{clScene.remove(m);m.material.dispose();});clMeanMkrs=[];
+  if(!EM.initialized)return;
+  const nS=+document.getElementById('sigmaSlider').value;
+  EM.gaussians.forEach((g,k)=>{
+    const pal=PAL[k%PAL.length];const col=new THREE.Color(pal.three);
+    const{values,vecs}=jacobi3(g.sigma);
+    const sx=nS*Math.sqrt(Math.abs(values[0])),sy=nS*Math.sqrt(Math.abs(values[1])),sz=nS*Math.sqrt(Math.abs(values[2]));
+    const M=new THREE.Matrix4();
+    M.set(vecs[0][0]*sx,vecs[1][0]*sy,vecs[2][0]*sz,g.mu[0],vecs[0][1]*sx,vecs[1][1]*sy,vecs[2][1]*sz,g.mu[1],vecs[0][2]*sx,vecs[1][2]*sy,vecs[2][2]*sz,g.mu[2],0,0,0,1);
+    const en={solid:null,wire:null};
+    if(clDispMode!=='points'){
+      const sm=new THREE.MeshPhongMaterial({color:col,emissive:col,emissiveIntensity:0.12,transparent:true,opacity:clDispMode==='wire'?0.04:0.09,side:THREE.DoubleSide,depthWrite:false});
+      const s=new THREE.Mesh(eGeo,sm);s.applyMatrix4(M);clScene.add(s);en.solid=s;
+      const em2=new THREE.LineBasicMaterial({color:pal.three,transparent:true,opacity:clDispMode==='wire'?0.55:0.28});
+      const w=new THREE.LineSegments(new THREE.EdgesGeometry(wGeo),em2);w.applyMatrix4(M);clScene.add(w);en.wire=w;
+    }
+    clEllMeshes.push(en);
+    const mm=new THREE.MeshPhongMaterial({color:col,emissive:col,emissiveIntensity:0.9,shininess:120});
+    const ms=new THREE.Mesh(new THREE.SphereGeometry(1,16,10),mm);ms.scale.setScalar(9);ms.position.set(g.mu[0],g.mu[1],g.mu[2]);clScene.add(ms);clMeanMkrs.push(ms);
+  });
+}
+
+// Cluster orbit
+const clOrbit={theta:0.7,phi:1.1,r:550,px:0,py:0,drag:false,right:false,lx:0,ly:0};
+function clUpdateCam(){const{theta,phi,r,px,py}=clOrbit;clCamera.position.set(px+r*Math.sin(phi)*Math.sin(theta),py+r*Math.cos(phi),r*Math.sin(phi)*Math.cos(theta));clCamera.lookAt(px,py,0);}
+clCanvas.addEventListener('mousedown',e=>{clOrbit.drag=true;clOrbit.right=e.button===2;clOrbit.lx=e.clientX;clOrbit.ly=e.clientY;e.preventDefault();});
+clCanvas.addEventListener('contextmenu',e=>e.preventDefault());
+window.addEventListener('mouseup',()=>{clOrbit.drag=false;});
+window.addEventListener('mousemove',e=>{
+  if(!clOrbit.drag)return;
+  const dx=e.clientX-clOrbit.lx,dy=e.clientY-clOrbit.ly;clOrbit.lx=e.clientX;clOrbit.ly=e.clientY;
+  if(clOrbit.right){clOrbit.px-=dx*0.5;clOrbit.py+=dy*0.5;}
+  else{clOrbit.theta-=dx*0.006;clOrbit.phi=Math.max(0.05,Math.min(Math.PI*0.95,clOrbit.phi-dy*0.006));}
+  clUpdateCam();
+});
+clCanvas.addEventListener('wheel',e=>{clOrbit.r=Math.max(80,Math.min(2000,clOrbit.r+e.deltaY*0.4));clUpdateCam();e.preventDefault();},{passive:false});
+
+// ══════════════════════════════════════════════════════
+// LANDSCAPE SCENE (Three.js #2)
+// ══════════════════════════════════════════════════════
+const lsCanvas=document.getElementById('lsCanvas');
+const lsRenderer=new THREE.WebGLRenderer({canvas:lsCanvas,antialias:true,alpha:false});
+lsRenderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+lsRenderer.setClearColor(0x04080f,1);
+const lsScene=new THREE.Scene();
+lsScene.fog=new THREE.FogExp2(0x04080f,0.0009);
+const lsCamera=new THREE.PerspectiveCamera(45,1,0.1,8000);
+lsScene.add(new THREE.AmbientLight(0x304060,2.5));
+const ls_dl=new THREE.DirectionalLight(0xffeedd,1.6);ls_dl.position.set(200,400,100);lsScene.add(ls_dl);
+const ls_dl2=new THREE.DirectionalLight(0x8855ff,0.8);ls_dl2.position.set(-200,200,-100);lsScene.add(ls_dl2);
+
+// grid + axes
+(()=>{const L=[];const R=200,S=40;for(let i=-R;i<=R;i+=S){L.push(i,-2,-R,i,-2,R);L.push(-R,-2,i,R,-2,i);}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(L,3));lsScene.add(new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0x0d1a2e,transparent:true,opacity:0.7})));})();
+function lsAxis(from,to,col){const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...from),new THREE.Vector3(...to)]);return new THREE.Line(g,new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.45}));}
+const XLO=-150,XHI=150,ZLO=-110,ZHI=110,YLO=0,YHI=120;
+lsScene.add(lsAxis([XLO,-2,ZLO],[XHI+10,-2,ZLO],0xff4455));
+lsScene.add(lsAxis([XLO,-2,ZLO],[XLO,YHI+10,ZLO],0x44ff88));
+lsScene.add(lsAxis([XLO,-2,ZLO],[XLO,-2,ZHI+10],0x4466ff));
+
+// Landscape orbit
+const lsOrbit={theta:-0.6,phi:1.05,r:600,px:0,py:30,drag:false,right:false,lx:0,ly:0};
+function lsUpdateCam(){const{theta,phi,r,px,py}=lsOrbit;lsCamera.position.set(px+r*Math.sin(phi)*Math.sin(theta),py+r*Math.cos(phi),r*Math.sin(phi)*Math.cos(theta));lsCamera.lookAt(px,py+30,0);}
+lsCanvas.addEventListener('mousedown',e=>{lsOrbit.drag=true;lsOrbit.right=e.button===2;lsOrbit.lx=e.clientX;lsOrbit.ly=e.clientY;e.preventDefault();});
+lsCanvas.addEventListener('contextmenu',e=>e.preventDefault());
+// Use a separate mousemove for landscape (track which canvas is being dragged)
+window.addEventListener('mousemove',e=>{
+  if(!lsOrbit.drag)return;
+  const dx=e.clientX-lsOrbit.lx,dy=e.clientY-lsOrbit.ly;lsOrbit.lx=e.clientX;lsOrbit.ly=e.clientY;
+  if(lsOrbit.right){lsOrbit.px-=dx*0.4;lsOrbit.py+=dy*0.4;}
+  else{lsOrbit.theta-=dx*0.006;lsOrbit.phi=Math.max(0.05,Math.min(Math.PI*0.9,lsOrbit.phi-dy*0.006));}
+  lsUpdateCam();
+});
+window.addEventListener('mouseup',()=>{lsOrbit.drag=false;});
+lsCanvas.addEventListener('wheel',e=>{lsOrbit.r=Math.max(80,Math.min(2500,lsOrbit.r+e.deltaY*0.5));lsUpdateCam();e.preventDefault();},{passive:false});
+
+// Fix: both canvases share window mousemove — differentiate by which drag is active
+// Rewrite: track which canvas started the drag
+let activeDragTarget=null;
+clCanvas.addEventListener('mousedown',()=>{activeDragTarget='cl';});
+lsCanvas.addEventListener('mousedown',()=>{activeDragTarget='ls';});
+window.addEventListener('mouseup',()=>{activeDragTarget=null;clOrbit.drag=false;lsOrbit.drag=false;});
+window.addEventListener('mousemove',e=>{
+  if(activeDragTarget==='cl'&&clOrbit.drag){
+    const dx=e.clientX-clOrbit.lx,dy=e.clientY-clOrbit.ly;clOrbit.lx=e.clientX;clOrbit.ly=e.clientY;
+    if(clOrbit.right){clOrbit.px-=dx*0.5;clOrbit.py+=dy*0.5;}
+    else{clOrbit.theta-=dx*0.006;clOrbit.phi=Math.max(0.05,Math.min(Math.PI*0.95,clOrbit.phi-dy*0.006));}
+    clUpdateCam();
+  } else if(activeDragTarget==='ls'&&lsOrbit.drag){
+    const dx=e.clientX-lsOrbit.lx,dy=e.clientY-lsOrbit.ly;lsOrbit.lx=e.clientX;lsOrbit.ly=e.clientY;
+    if(lsOrbit.right){lsOrbit.px-=dx*0.4;lsOrbit.py+=dy*0.4;}
+    else{lsOrbit.theta-=dx*0.006;lsOrbit.phi=Math.max(0.05,Math.min(Math.PI*0.9,lsOrbit.phi-dy*0.006));}
+    lsUpdateCam();
+  }
+});
+
+// ── Surface data ──
+const GRID=44;
+let mu1Arr=[],piArr=[];
+let llGrid=null,elboGrid=null;
+let llMin=0,llMax=1,elboMin=0,elboMax=1,gMin=0,gMax=1;
+let lsMeshLL=null,lsMeshELBO=null;
+let lsPosSphere=null,lsPosElboSphere=null,lsKLPillar=null,lsPathLine=null;
+let lsPathPts=[];
+let lsAnimating=false,lsAnimFrom=null,lsAnimTo=null,lsAnimT=0;
+
+function mu1ToX(m){return mu1Arr.length?XLO+(m-mu1Arr[0])/(mu1Arr[GRID-1]-mu1Arr[0])*(XHI-XLO):0;}
+function piToZ(p){return piArr.length?ZLO+(p-piArr[0])/(piArr[GRID-1]-piArr[0])*(ZHI-ZLO):0;}
+function valToY(v){return YLO+(v-gMin)/(gMax-gMin||1)*(YHI-YLO);}
+
+function cmLL(t){t=Math.max(0,Math.min(1,t));if(t<0.3){const s=t/0.3;return[0.1+s*0.5,0.02+s*0.12,0.02];}if(t<0.65){const s=(t-0.3)/0.35;return[0.6+s*0.35,0.14+s*0.4,0.02];}const s=(t-0.65)/0.35;return[0.95,0.54+s*0.43,0.02+s*0.14];}
+function cmELBO(t){t=Math.max(0,Math.min(1,t));if(t<0.3){const s=t/0.3;return[0.08+s*0.22,0.02+s*0.08,0.25+s*0.35];}if(t<0.65){const s=(t-0.3)/0.35;return[0.3+s*0.25,0.1+s*0.2,0.6+s*0.2];}const s=(t-0.65)/0.35;return[0.55+s*0.12,0.3+s*0.24,0.8+s*0.08];}
+
+function buildSurfGeo(valGrid,cfn){
+  const N=GRID;const pos=new Float32Array(N*N*3),col=new Float32Array(N*N*3),idx=[];
+  let mn=Infinity,mx=-Infinity;for(let k=0;k<N*N;k++){if(valGrid[k]<mn)mn=valGrid[k];if(valGrid[k]>mx)mx=valGrid[k];}
+  const rng=mx-mn||1;
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){const k=i*N+j;pos[k*3]=mu1ToX(mu1Arr[i]);pos[k*3+1]=valToY(valGrid[k]);pos[k*3+2]=piToZ(piArr[j]);const[r,g,b]=cfn((valGrid[k]-mn)/rng);col[k*3]=r;col[k*3+1]=g;col[k*3+2]=b;}
+  for(let i=0;i<N-1;i++)for(let j=0;j<N-1;j++){const a=i*N+j;idx.push(a,a+N,a+1,a+1,a+N,a+N+1);}
+  const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(pos,3));geo.setAttribute('color',new THREE.BufferAttribute(col,3));geo.setIndex(idx);geo.computeVertexNormals();return geo;
+}
+const llMat=new THREE.MeshPhongMaterial({vertexColors:true,side:THREE.DoubleSide,shininess:60});
+const elboMat=new THREE.MeshPhongMaterial({vertexColors:true,side:THREE.DoubleSide,transparent:true,opacity:0.82,shininess:40,depthWrite:false});
+
+function buildGrid(){
+  if(!EM.data1D.length)return;
+  const spread=Math.abs(EM.gaussians[0]?.mu[0]||60)*0.9+50;
+  const mid=(EM.gaussians[0]?.mu[0]||0);
+  mu1Arr=Array.from({length:GRID},(_,i)=>mid-spread+2*spread*i/(GRID-1));
+  piArr=Array.from({length:GRID},(_,j)=>0.05+0.9*j/(GRID-1));
+  llGrid=new Float64Array(GRID*GRID);
+  let mn=Infinity,mx=-Infinity;
+  for(let i=0;i<GRID;i++)for(let j=0;j<GRID;j++){const v=LL1D(EM.data1D,mu1Arr[i],piArr[j],EM.mu2_1D,EM.sigma1D);llGrid[i*GRID+j]=v;if(v<mn)mn=v;if(v>mx)mx=v;}
+  llMin=mn;llMax=mx;
+  buildElboGrid(EM.rs1D);
+}
+function buildElboGrid(rs){
+  if(!llGrid||!EM.data1D.length)return;
+  elboGrid=new Float64Array(GRID*GRID);
+  let mn=Infinity,mx=-Infinity;
+  for(let i=0;i<GRID;i++)for(let j=0;j<GRID;j++){const v=ELBO1D(EM.data1D,mu1Arr[i],piArr[j],EM.mu2_1D,EM.sigma1D,rs);elboGrid[i*GRID+j]=v;if(v<mn)mn=v;if(v>mx)mx=v;}
+  elboMin=mn;elboMax=mx;gMin=Math.min(llMin,elboMin);gMax=Math.max(llMax,elboMax);
+}
+function rebuildLSSurfaces(){
+  if(!llGrid)return;
+  if(lsMeshLL){lsScene.remove(lsMeshLL);lsMeshLL.geometry.dispose();}
+  lsMeshLL=new THREE.Mesh(buildSurfGeo(llGrid,cmLL),llMat);lsScene.add(lsMeshLL);
+  if(elboGrid){
+    if(lsMeshELBO){lsScene.remove(lsMeshELBO);lsMeshELBO.geometry.dispose();}
+    lsMeshELBO=new THREE.Mesh(buildSurfGeo(elboGrid,cmELBO),elboMat);lsScene.add(lsMeshELBO);
+  }
+}
+function makeGlowSph(col,r=6){
+  const g=new THREE.SphereGeometry(r,20,14);
+  const m=new THREE.MeshPhongMaterial({color:col,emissive:col,emissiveIntensity:1.2,shininess:120});
+  const mesh=new THREE.Mesh(g,m);
+  const rg=new THREE.TorusGeometry(r*1.8,0.7,8,32);
+  mesh.add(new THREE.Mesh(rg,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.3})));
+  return mesh;
+}
+function updateLSMarkers(){
+  if(!EM.initialized||!EM.data1D.length)return;
+  const curMu1=EM.gaussians[0]?.mu[0]||0;
+  const curPi=EM.gaussians[0]?.pi||0.5;
+  const x=mu1ToX(curMu1),z=piToZ(curPi);
+  const llY=valToY(LL1D(EM.data1D,curMu1,curPi,EM.mu2_1D,EM.sigma1D));
+  const elboY=valToY(ELBO1D(EM.data1D,curMu1,curPi,EM.mu2_1D,EM.sigma1D,EM.rs1D));
+  if(!lsPosSphere){lsPosSphere=makeGlowSph(0xf9a825,7);lsScene.add(lsPosSphere);}
+  lsPosSphere.position.set(x,llY+6,z);
+  if(!lsPosElboSphere){lsPosElboSphere=makeGlowSph(0xa78bfa,5);lsScene.add(lsPosElboSphere);}
+  lsPosElboSphere.position.set(x,elboY+4,z);
+  if(lsKLPillar){lsScene.remove(lsKLPillar);}
+  const h=Math.max(0.5,llY-elboY);
+  if(h>0.5){
+    const pg=new THREE.CylinderGeometry(1.5,1.5,h,8);
+    const pm=new THREE.MeshBasicMaterial({color:0xff6b9d,transparent:true,opacity:0.7});
+    lsKLPillar=new THREE.Mesh(pg,pm);lsKLPillar.position.set(x,elboY+h/2,z);lsScene.add(lsKLPillar);
+  }
+  // path
+  lsPathPts.push({mu1:curMu1,pi1:curPi,ll:llY});
+  if(lsPathLine)lsScene.remove(lsPathLine);
+  if(lsPathPts.length>=2){
+    const pts=lsPathPts.map(p=>new THREE.Vector3(mu1ToX(p.mu1),p.ll+8,piToZ(p.pi1)));
+    const g=new THREE.BufferGeometry().setFromPoints(pts);
+    lsPathLine=new THREE.Line(g,new THREE.LineBasicMaterial({color:0x4de8d4,transparent:true,opacity:0.85}));
+    lsScene.add(lsPathLine);
+  }
+}
+function startElboAnim(oldGrid){
+  lsAnimFrom=new Float64Array(oldGrid);lsAnimTo=new Float64Array(elboGrid);lsAnimT=0;lsAnimating=true;
+}
+function easeInOut(t){return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}
+
+// ══════════════════════════════════════════════════════
+// SAMPLE DATA
+// ══════════════════════════════════════════════════════
+const CDEFS=[
+  {mu:[-110,65,-85],sx:38,sy:26,sz:42,rot:0.3},{mu:[110,-32,62],sx:32,sy:42,sz:26,rot:-0.5},
+  {mu:[10,82,92],sx:42,sy:32,sz:36,rot:0.8},{mu:[-82,-72,22],sx:30,sy:36,sz:30,rot:0.2},
+  {mu:[82,52,-52],sx:36,sy:28,sz:42,rot:-0.3},{mu:[0,-82,-32],sx:34,sy:34,sz:28,rot:0.6},
+  {mu:[-60,100,60],sx:28,sy:40,sz:34,rot:0.9},{mu:[100,-60,-80],sx:40,sy:28,sz:30,rot:-0.7},
+];
+function addSample(){
+  stopAuto();
+  const n=Math.max(10,Math.min(400,parseInt(document.getElementById('numPts').value)||75));
+  const K=EM.K,pc=Math.round(n/K);
+  for(let k=0;k<K;k++){
+    const c=CDEFS[k%CDEFS.length],cnt=k===K-1?n-EM.points.length:pc;
+    for(let i=0;i<cnt;i++){
+      const z1=randn(),z2=randn(),z3=randn(),cr=Math.cos(c.rot),sr=Math.sin(c.rot);
+      EM.points.push([c.mu[0]+(z1*c.sx*cr-z2*c.sy*sr),c.mu[1]+(z1*c.sx*sr+z2*c.sy*cr)*0.6,c.mu[2]+z3*c.sz]);
+    }
+  }
+  resetSoft();clRebuildPts();updateUI();
+}
+
+// ══════════════════════════════════════════════════════
+// EM STEPS
+// ══════════════════════════════════════════════════════
+function initEM(){
+  EM.gaussians=emInitGs(EM.points,EM.K);
+  EM.resps=[];EM.llHistory=[];EM.events=[];EM.prevLL=null;
+  EM.iter=0;EM.phase='ready';EM.converged=false;EM.initialized=true;
+  lsPathPts=[];
+  document.getElementById('convBanner').style.display='none';
+  document.getElementById('btnStep').textContent='▶ E-Step';
+  document.getElementById('btnStep').disabled=false;
+  document.getElementById('btnAuto').disabled=false;
+  update1DData();buildGrid();rebuildLSSurfaces();
+  clRebuildPts();clRebuildEll();updateLSMarkers();updateClList();updatePhaseUI();updateUI();
+}
+
+function stepOnce(){
+  if(!EM.initialized||EM.converged)return;
+  if(EM.phase==='ready'||EM.phase==='m'){
+    // E-step
+    EM.resps=emE3(EM.points,EM.gaussians);EM.phase='e';
+    document.getElementById('btnStep').textContent='▶ M-Step';
+    const ll=emLL3(EM.points,EM.gaussians);
+    const oldEG=elboGrid?new Float64Array(elboGrid):null;
+    update1DData();buildElboGrid(EM.rs1D);
+    const elbo=emELBO3(EM.points,EM.gaussians,EM.resps);
+    const kl=Math.max(0,ll-elbo);
+    EM.events.push({phase:'e',ll,elbo,kl});
+    updateELBODrawer(ll,elbo,kl,'e');
+    if(oldEG)startElboAnim(oldEG);else rebuildLSSurfaces();
+    updateLSMarkers();
+  }else{
+    // M-step
+    EM.gaussians=emM3(EM.points,EM.resps,EM.K);
+    update1DData();
+    const ll=emLL3(EM.points,EM.gaussians);
+    const elbo=emELBO3(EM.points,EM.gaussians,EM.resps);
+    const kl=Math.max(0,ll-elbo);
+    const delta=EM.prevLL!=null?Math.abs(ll-EM.prevLL):Infinity;
+    EM.llHistory.push(ll);EM.prevLL=ll;EM.iter++;EM.phase='m';
+    document.getElementById('btnStep').textContent='▶ E-Step';
+    EM.events.push({phase:'m',ll,elbo,kl});
+    const eps=EPS_VALS[+document.getElementById('epsSlider').value-1];
+    if(delta<eps&&EM.iter>2){EM.converged=true;document.getElementById('convBanner').style.display='block';stopAuto();}
+    updateStats(ll,delta);drawLLMini();
+    buildGrid();rebuildLSSurfaces();updateLSMarkers();
+    updateELBODrawer(ll,elbo,kl,'m');
+  }
+  clRebuildPts();clRebuildEll();updateClList();updatePhaseUI();
+}
+
+let autoTimer=null,autoRunning=false;
+function toggleAuto(){autoRunning?stopAuto():startAuto();}
+function startAuto(){
+  autoRunning=true;const b=document.getElementById('btnAuto');
+  b.textContent='⏸ Pause';b.style.background='rgba(249,168,37,0.15)';b.style.color='#f9a825';b.style.borderColor='rgba(249,168,37,0.3)';
+  autoTick();
+}
+function stopAuto(){
+  autoRunning=false;clearTimeout(autoTimer);const b=document.getElementById('btnAuto');
+  b.textContent='⟳ Auto';b.style.background='rgba(77,232,212,0.1)';b.style.color='var(--acc3)';b.style.borderColor='rgba(77,232,212,0.3)';
+}
+function autoTick(){
+  if(!autoRunning||EM.converged){if(EM.converged)stopAuto();return;}
+  stepOnce();
+  const delay=[700,450,250,120,40][+document.getElementById('speedSlider').value-1];
+  autoTimer=setTimeout(autoTick,delay);
+}
+function resetSoft(){
+  EM.gaussians=[];EM.resps=[];EM.llHistory=[];EM.events=[];
+  EM.prevLL=null;EM.iter=0;EM.phase='none';EM.converged=false;EM.initialized=false;
+  lsPathPts=[];lsAnimating=false;
+  document.getElementById('btnStep').disabled=true;document.getElementById('btnAuto').disabled=true;
+  document.getElementById('btnStep').textContent='▶ E-Step';
+  document.getElementById('convBanner').style.display='none';
+  document.getElementById('clusterList').innerHTML='<div style="font-family:\'DM Mono\',monospace;font-size:0.59rem;color:var(--dim);text-align:center;padding:5px 0">Initialize to see clusters</div>';
+  clClearScene();
+  if(lsPosSphere){lsScene.remove(lsPosSphere);lsPosSphere=null;}
+  if(lsPosElboSphere){lsScene.remove(lsPosElboSphere);lsPosElboSphere=null;}
+  if(lsKLPillar){lsScene.remove(lsKLPillar);lsKLPillar=null;}
+  if(lsPathLine){lsScene.remove(lsPathLine);lsPathLine=null;}
+  updatePhaseUI();updateStats(null,null);drawLLMini();updateELBODrawer();
+}
+function fullReset(){stopAuto();EM.points=[];resetSoft();updateUI();}
+
+// ══════════════════════════════════════════════════════
+// ELBOW ANALYSIS
+// ══════════════════════════════════════════════════════
+let elbMetric='BIC',elbData=null;
+function runElbow(){
+  if(EM.points.length<8)return;
+  const btn=document.getElementById('btnElbow');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Computing…';
+  const st=document.getElementById('elbowStatus'),wr=document.getElementById('elbowWrap'),rc=document.getElementById('elbowRec');
+  st.style.display='block';wr.style.display='none';rc.style.display='none';st.innerHTML='Running K=2…8…';
+  const pts=EM.points,ks=[2,3,4,5,6,7,8],res=[];let idx=0;
+  function next(){
+    if(idx>=ks.length){finishElbow(res,btn,st,wr,rc);return;}
+    const K=ks[idx++];st.innerHTML=`K = ${K} / 8…`;
+    setTimeout(()=>{let best=-Infinity;for(let r=0;r<3;r++){const x=runEM(pts,K,100,1e-4);if(x.ll>best)best=x.ll;}res.push({k:K,ll:best,bic:bic(best,K,pts.length),aic:aic(best,K)});next();},0);
+  }
+  next();
+}
+function finishElbow(res,btn,st,wr,rc){
+  elbData=res;st.style.display='none';wr.style.display='block';btn.disabled=false;btn.innerHTML='◈ Re-run Elbow';
+  drawElbow();
+  const vals=res.map(r=>elbMetric==='BIC'?r.bic:elbMetric==='AIC'?r.aic:-r.ll);
+  let bK=res[0].k,mxC=-Infinity;
+  for(let i=1;i<vals.length-1;i++){const c=vals[i-1]+vals[i+1]-2*vals[i];if(c>mxC){mxC=c;bK=res[i].k;}}
+  rc.style.display='block';rc.innerHTML=`Elbow → <strong>K = ${bK}</strong><br><span style="color:var(--dim);font-size:0.59rem">Based on ${elbMetric}.</span>`;
+}
+function drawElbow(){
+  const el=document.getElementById('elbowCanvas');if(!elbData||!el)return;
+  const w=el.offsetWidth||220,h=el.offsetHeight||110;el.width=w;el.height=h;
+  const ctx=el.getContext('2d');ctx.clearRect(0,0,w,h);
+  const vals=elbData.map(r=>elbMetric==='BIC'?r.bic:elbMetric==='AIC'?r.aic:-r.ll);
+  const ks=elbData.map(r=>r.k);
+  const pad={l:30,r:8,t:18,b:24};const cw=w-pad.l-pad.r,ch=h-pad.t-pad.b;
+  const mn=Math.min(...vals),mx=Math.max(...vals),rng=mx-mn||1;
+  const tX=i=>(i/(vals.length-1))*cw,tY=v=>ch-((v-mn)/rng)*ch;
+  ctx.save();ctx.translate(pad.l,pad.t);
+  ctx.strokeStyle='rgba(90,120,255,0.07)';ctx.lineWidth=1;ctx.setLineDash([2,3]);
+  for(let i=0;i<=3;i++){ctx.beginPath();ctx.moveTo(0,ch*i/3);ctx.lineTo(cw,ch*i/3);ctx.stroke();}
+  ctx.setLineDash([]);
+  const gr=ctx.createLinearGradient(0,0,0,ch);gr.addColorStop(0,'rgba(249,168,37,0.22)');gr.addColorStop(1,'rgba(249,168,37,0)');
+  ctx.beginPath();vals.forEach((v,i)=>{const x=tX(i),y=tY(v);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.lineTo(tX(vals.length-1),ch);ctx.lineTo(0,ch);ctx.closePath();ctx.fillStyle=gr;ctx.fill();
+  ctx.beginPath();vals.forEach((v,i)=>{const x=tX(i),y=tY(v);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='#f9a825';ctx.lineWidth=2;ctx.stroke();
+  let ei=0,mc=-Infinity;for(let i=1;i<vals.length-1;i++){const c=vals[i-1]+vals[i+1]-2*vals[i];if(c>mc){mc=c;ei=i;}}
+  vals.forEach((v,i)=>{const x=tX(i),y=tY(v),isE=i===ei;ctx.beginPath();ctx.arc(x,y,isE?5.5:3,0,Math.PI*2);ctx.fillStyle=isE?'#f9a825':'rgba(249,168,37,0.5)';if(isE){ctx.shadowColor='#f9a825';ctx.shadowBlur=10;}ctx.fill();ctx.shadowBlur=0;if(isE){ctx.setLineDash([2,3]);ctx.strokeStyle='rgba(249,168,37,0.3)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,y+1);ctx.lineTo(x,ch);ctx.stroke();ctx.setLineDash([]);}ctx.font='8px DM Mono,monospace';ctx.fillStyle=isE?'#f9a825':'rgba(90,120,255,0.5)';ctx.textAlign='center';ctx.fillText('K='+ks[i],x,ch+12);});
+  ctx.font='9px DM Mono,monospace';ctx.fillStyle='rgba(90,120,255,0.35)';ctx.textAlign='right';for(let i=0;i<=3;i++){const v=mn+(rng*i/3);ctx.fillText(Math.abs(v)>1e4?v.toExponential(1):v.toFixed(0),-3,tY(v)+3);}
+  ctx.restore();
+}
+
+// ══════════════════════════════════════════════════════
+// ELBO DRAWER CHARTS
+// ══════════════════════════════════════════════════════
+function drawElboBig(){
+  const el=document.getElementById('elboBigC');if(!el)return;
+  const w=el.offsetWidth,h=el.offsetHeight;if(!w||!h)return;el.width=w;el.height=h;
+  const ctx=el.getContext('2d');ctx.clearRect(0,0,w,h);
+  const evs=EM.events;
+  const pad={l:38,r:16,t:22,b:28};const cw=w-pad.l-pad.r,ch=h-pad.t-pad.b;
+  // legend
+  ctx.font='500 9px DM Mono,monospace';
+  [[10,'#f9a825','LL'],[44,'#a78bfa','ELBO'],[84,'rgba(255,107,157,0.5)','KL gap']].forEach(([x,c,l])=>{ctx.fillStyle=c;ctx.fillRect(pad.l+x,7,14,2);ctx.fillStyle=c;ctx.fillText(l,pad.l+x+17,12);});
+  if(evs.length<1){ctx.font='10px DM Mono,monospace';ctx.fillStyle='rgba(90,120,255,0.2)';ctx.textAlign='center';ctx.fillText('Step the algorithm to see LL & ELBO evolve',w/2,h/2);return;}
+  ctx.save();ctx.translate(pad.l,pad.t);
+  const allV=evs.flatMap(e=>[e.ll,e.elbo]);const mn=Math.min(...allV)-Math.abs(Math.min(...allV))*0.01,mx=Math.max(...allV)+Math.abs(Math.max(...allV))*0.005;const rng=mx-mn||1;
+  const N=evs.length,tX=i=>(i/Math.max(N-1,1))*cw,tY=v=>ch-((v-mn)/rng)*ch;
+  ctx.strokeStyle='rgba(90,120,255,0.06)';ctx.lineWidth=1;ctx.setLineDash([2,3]);
+  for(let i=0;i<=4;i++){ctx.beginPath();ctx.moveTo(0,ch*i/4);ctx.lineTo(cw,ch*i/4);ctx.stroke();}ctx.setLineDash([]);
+  evs.forEach((ev,i)=>{const x=tX(i);const isE=ev.phase==='e';ctx.strokeStyle=isE?'rgba(90,120,255,0.2)':'rgba(255,107,157,0.15)';ctx.lineWidth=1;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,ch);ctx.stroke();ctx.setLineDash([]);ctx.font='7px DM Mono,monospace';ctx.fillStyle=isE?'rgba(90,120,255,0.45)':'rgba(255,107,157,0.45)';ctx.textAlign='center';ctx.fillText(isE?'E':'M',x,ch+10);});
+  // KL shading
+  ctx.beginPath();evs.forEach((ev,i)=>{ctx.lineTo(tX(i),tY(ev.ll));});evs.slice().reverse().forEach((ev,i)=>ctx.lineTo(tX(N-1-i),tY(ev.elbo)));ctx.closePath();ctx.fillStyle='rgba(255,107,157,0.1)';ctx.fill();
+  // ELBO fill
+  const eg=ctx.createLinearGradient(0,0,0,ch);eg.addColorStop(0,'rgba(167,139,250,0.14)');eg.addColorStop(1,'rgba(167,139,250,0)');
+  ctx.beginPath();evs.forEach((ev,i)=>{const x=tX(i),y=tY(ev.elbo);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.lineTo(tX(N-1),ch);ctx.lineTo(0,ch);ctx.closePath();ctx.fillStyle=eg;ctx.fill();
+  // ELBO line
+  ctx.beginPath();evs.forEach((ev,i)=>{const x=tX(i),y=tY(ev.elbo);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='#a78bfa';ctx.lineWidth=2;ctx.stroke();
+  // LL line
+  ctx.beginPath();evs.forEach((ev,i)=>{const x=tX(i),y=tY(ev.ll);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='#f9a825';ctx.lineWidth=2;ctx.stroke();
+  evs.forEach((ev,i)=>{const x=tX(i);ctx.beginPath();ctx.arc(x,tY(ev.ll),2.5,0,Math.PI*2);ctx.fillStyle='#f9a825';ctx.fill();ctx.beginPath();ctx.arc(x,tY(ev.elbo),2.5,0,Math.PI*2);ctx.fillStyle='#a78bfa';ctx.fill();});
+  ctx.font='8px DM Mono,monospace';ctx.fillStyle='rgba(90,120,255,0.35)';ctx.textAlign='right';for(let i=0;i<=4;i++){const v=mn+(rng*i/4);ctx.fillText(v.toFixed(0),-3,tY(v)+3);}
+  ctx.restore();
+}
+function drawKLDrw(){
+  const el=document.getElementById('klDrwCanvas');if(!el)return;
+  const w=el.offsetWidth,h=el.offsetHeight;if(!w||!h)return;el.width=w;el.height=h;
+  const ctx=el.getContext('2d');ctx.clearRect(0,0,w,h);
+  const evs=EM.events;if(!evs.length)return;
+  const pad={l:32,r:6,t:4,b:16};const cw=w-pad.l-pad.r,ch=h-pad.t-pad.b;
+  const kls=evs.map(e=>e.kl);const mx=Math.max(...kls)||1;
+  const N=evs.length,tX=i=>(i/Math.max(N-1,1))*cw,tY=v=>ch-(v/mx)*ch;
+  ctx.save();ctx.translate(pad.l,pad.t);
+  ctx.strokeStyle='rgba(255,107,157,0.06)';ctx.lineWidth=1;ctx.setLineDash([2,3]);for(let i=0;i<=3;i++){ctx.beginPath();ctx.moveTo(0,ch*i/3);ctx.lineTo(cw,ch*i/3);ctx.stroke();}ctx.setLineDash([]);
+  const kg=ctx.createLinearGradient(0,0,0,ch);kg.addColorStop(0,'rgba(255,107,157,0.32)');kg.addColorStop(1,'rgba(255,107,157,0)');
+  ctx.beginPath();evs.forEach((ev,i)=>{const x=tX(i),y=tY(ev.kl);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.lineTo(tX(N-1),ch);ctx.lineTo(0,ch);ctx.closePath();ctx.fillStyle=kg;ctx.fill();
+  ctx.beginPath();evs.forEach((ev,i)=>{const x=tX(i),y=tY(ev.kl);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='#ff6b9d';ctx.lineWidth=1.5;ctx.stroke();
+  evs.forEach((ev,i)=>{ctx.font='7px DM Mono,monospace';ctx.fillStyle=ev.phase==='e'?'rgba(90,120,255,0.5)':'rgba(255,107,157,0.5)';ctx.textAlign='center';ctx.fillText(ev.phase.toUpperCase(),tX(i),ch+12);});
+  ctx.font='8px DM Mono,monospace';ctx.fillStyle='rgba(255,107,157,0.35)';ctx.textAlign='right';for(let i=0;i<=2;i++){ctx.fillText((mx*i/2).toFixed(1),-3,tY(mx*i/2)+3);}
+  ctx.restore();
+}
+function updateELBODrawer(ll,elbo,kl,phase){
+  const f=v=>v!=null?v.toFixed(2):'—';const f4=v=>v!=null?v.toFixed(4):'—';
+  document.getElementById('hLL').textContent=f(ll);
+  document.getElementById('hELBO').textContent=f(elbo);
+  document.getElementById('hKL').textContent=f4(kl);
+  document.getElementById('dsLL').textContent=f(ll);
+  document.getElementById('dsELBO').textContent=f(elbo);
+  document.getElementById('dsKL').textContent=f4(kl);
+  document.getElementById('klBadge').textContent=f4(kl);
+  if(ll!=null&&ll!==0){
+    const t=Math.max(0,Math.min(100,(1-Math.abs(kl||0)/Math.max(Math.abs(ll),1))*100));
+    document.getElementById('tightFill').style.width=t.toFixed(1)+'%';
+    document.getElementById('tightPct').textContent=t.toFixed(1)+'%';
+  }
+  if(drawerOpen){drawElboBig();drawKLDrw();}
+}
+
+// ══════════════════════════════════════════════════════
+// UI HELPERS
+// ══════════════════════════════════════════════════════
+function updateUI(){
+  document.getElementById('sPoints').textContent=EM.points.length;
+  document.getElementById('sIter').textContent=EM.iter;
+  document.getElementById('hIter').textContent=EM.iter;
+  document.getElementById('btnInit').disabled=EM.points.length<8;
+  document.getElementById('btnElbow').disabled=EM.points.length<8;
+}
+function updateStats(ll,delta){
+  const f=v=>v!=null?v.toFixed(1):'—';const f4=v=>v!=null?(v===Infinity?'∞':v.toFixed(4)):'—';
+  document.getElementById('sLL').textContent=f(ll);
+  document.getElementById('sDelta').textContent=f4(delta);
+  document.getElementById('sIter').textContent=EM.iter;
+  document.getElementById('hIter').textContent=EM.iter;
+}
+function updatePhaseUI(){
+  const ph=EM.phase==='e'?'E-Step':EM.phase==='m'?'M-Step':EM.phase==='ready'?'Ready':'—';
+  document.getElementById('hPhase').textContent=ph;
+  document.getElementById('eCard').classList.toggle('active',EM.phase==='e');
+  document.getElementById('mCard').classList.toggle('active',EM.phase==='m');
+}
+function updateClList(){
+  if(!EM.initialized)return;
+  document.getElementById('clusterList').innerHTML=EM.gaussians.map((g,k)=>{
+    const pal=PAL[k%PAL.length];const pi=(g.pi*100).toFixed(1);
+    const pts=EM.resps.length?EM.resps.filter(r=>r.indexOf(Math.max(...r))===k).length:'?';
+    return`<div class="cl-row"><div class="cl-dot" style="background:${pal.hex};box-shadow:0 0 5px ${pal.hex}99"></div><div style="color:var(--text)">G${k+1}</div><div style="color:var(--dim);font-size:0.58rem">π=${pi}% n≈${pts}</div><div style="margin-left:auto;font-size:0.52rem;color:var(--dim)">${g.mu.map(v=>v.toFixed(0)).join(', ')}</div></div>`;
+  }).join('');
+}
+function drawLLMini(){
+  const el=document.getElementById('llMini');const w=el.offsetWidth||220,h=el.offsetHeight||58;el.width=w;el.height=h;
+  const ctx=el.getContext('2d');ctx.clearRect(0,0,w,h);
+  const data=EM.llHistory;if(data.length<2)return;
+  const pad={l:4,r:4,t:13,b:4};const cw=w-pad.l-pad.r,ch=h-pad.t-pad.b;
+  const mn=Math.min(...data),mx=Math.max(...data),rng=mx-mn||1;
+  ctx.save();ctx.translate(pad.l,pad.t);
+  const gr=ctx.createLinearGradient(0,0,0,ch);gr.addColorStop(0,'rgba(77,232,212,0.28)');gr.addColorStop(1,'rgba(77,232,212,0)');
+  ctx.beginPath();data.forEach((v,i)=>{const x=(i/(data.length-1))*cw,y=ch-((v-mn)/rng)*ch;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.lineTo(cw,ch);ctx.lineTo(0,ch);ctx.closePath();ctx.fillStyle=gr;ctx.fill();
+  ctx.beginPath();data.forEach((v,i)=>{const x=(i/(data.length-1))*cw,y=ch-((v-mn)/rng)*ch;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='#4de8d4';ctx.lineWidth=1.5;ctx.stroke();
+  const lx=cw,ly=ch-((data[data.length-1]-mn)/rng)*ch;ctx.beginPath();ctx.arc(lx,ly,2.5,0,Math.PI*2);ctx.fillStyle='#4de8d4';ctx.shadowColor='#4de8d4';ctx.shadowBlur=7;ctx.fill();
+  ctx.restore();
+}
+
+// ══════════════════════════════════════════════════════
+// DRAWER
+// ══════════════════════════════════════════════════════
+let drawerOpen=false;
+function toggleDrawer(){
+  drawerOpen=!drawerOpen;
+  document.getElementById('elboDrw').classList.toggle('open',drawerOpen);
+  setTimeout(()=>{if(drawerOpen){drawElboBig();drawKLDrw();}},320);
+}
+// Open drawer by default
+setTimeout(()=>toggleDrawer(),400);
+
+// ══════════════════════════════════════════════════════
+// EVENT BINDINGS
+// ══════════════════════════════════════════════════════
+document.getElementById('btnSample').addEventListener('click',addSample);
+document.getElementById('btnInit').addEventListener('click',initEM);
+document.getElementById('btnStep').addEventListener('click',stepOnce);
+document.getElementById('btnAuto').addEventListener('click',toggleAuto);
+document.getElementById('btnReset').addEventListener('click',fullReset);
+document.getElementById('btnElbow').addEventListener('click',runElbow);
+
+document.getElementById('kSlider').addEventListener('input',e=>{EM.K=+e.target.value;document.getElementById('kVal').textContent=EM.K;});
+document.getElementById('epsSlider').addEventListener('input',e=>{document.getElementById('epsVal').textContent=EPS_LBL[+e.target.value-1];});
+document.getElementById('sigmaSlider').addEventListener('input',e=>{document.getElementById('sigmaVal').textContent=e.target.value+'σ';if(EM.initialized)clRebuildEll();});
+document.getElementById('speedSlider').addEventListener('input',e=>{document.getElementById('speedVal').textContent=e.target.value+'×';});
+['metBIC','metAIC','metNLL'].forEach(id=>{document.getElementById(id).addEventListener('click',function(){['metBIC','metAIC','metNLL'].forEach(i=>document.getElementById(i).classList.remove('active'));this.classList.add('active');elbMetric={metBIC:'BIC',metAIC:'AIC',metNLL:'LL'}[id];if(elbData)drawElbow();});});
+['modeEllip','modeWire','modePts'].forEach(id=>{document.getElementById(id).addEventListener('click',function(){['modeEllip','modeWire','modePts'].forEach(i=>document.getElementById(i).classList.remove('active'));this.classList.add('active');clDispMode={modeEllip:'ellipse',modeWire:'wire',modePts:'points'}[id];if(EM.initialized)clRebuildEll();});});
+
+// ══════════════════════════════════════════════════════
+// RESIZE + RENDER LOOP
+// ══════════════════════════════════════════════════════
+function resizeBoth(){
+  const clW=document.getElementById('clWrap');
+  clRenderer.setSize(clW.clientWidth,clW.clientHeight,false);
+  clCamera.aspect=clW.clientWidth/clW.clientHeight;clCamera.updateProjectionMatrix();
+  const lsW=document.getElementById('lsWrap');
+  lsRenderer.setSize(lsW.clientWidth,lsW.clientHeight,false);
+  lsCamera.aspect=lsW.clientWidth/lsW.clientHeight;lsCamera.updateProjectionMatrix();
+}
+window.addEventListener('resize',resizeBoth);
+resizeBoth();clUpdateCam();lsUpdateCam();
+
+let tick=0;
+function animate(){
+  requestAnimationFrame(animate);tick+=0.01;
+  // Cluster pulsing
+  clMeanMkrs.forEach((m,k)=>{m.scale.setScalar(9+Math.sin(tick+k*1.2)*2);});
+  clPtMeshes.forEach((m,i)=>{m.scale.setScalar(4+Math.sin(tick*0.5+i*0.3)*0.5);});
+  // Landscape marker pulse
+  if(lsPosSphere)lsPosSphere.scale.setScalar(1+0.15*Math.sin(tick*2));
+  if(lsPosElboSphere)lsPosElboSphere.scale.setScalar(1+0.12*Math.sin(tick*2.3));
+  // ELBO surface animation
+  if(lsAnimating){
+    lsAnimT=Math.min(1,lsAnimT+0.018);
+    const t=easeInOut(lsAnimT);
+    if(lsMeshELBO&&elboGrid){
+      const pos=lsMeshELBO.geometry.attributes.position;
+      for(let i=0;i<GRID;i++)for(let j=0;j<GRID;j++){
+        const k=i*GRID+j;
+        const interp=lsAnimFrom[k]+(lsAnimTo[k]-lsAnimFrom[k])*t;
+        pos.setY(k,valToY(interp));
+      }
+      pos.needsUpdate=true;lsMeshELBO.geometry.computeVertexNormals();
+    }
+    if(lsAnimT>=1){lsAnimating=false;rebuildLSSurfaces();updateLSMarkers();}
+  }
+  clRenderer.render(clScene,clCamera);
+  lsRenderer.render(lsScene,lsCamera);
+}
+animate();
+</script>
+</body>
+</html>
