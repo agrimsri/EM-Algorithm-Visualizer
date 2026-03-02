@@ -1,3 +1,5 @@
+[TL;DR visualize](https://agrimsri.github.io/EM-Algorithm-Visualizer/)
+
 # EM Algorithm — Interactive 3D Visualizer
 
 > A full-stack interactive visualization of the **Expectation-Maximization (EM) algorithm** for Gaussian Mixture Models, showing cluster formation in 3D space alongside the log-likelihood and ELBO parameter landscape — updated live at every half-step.
